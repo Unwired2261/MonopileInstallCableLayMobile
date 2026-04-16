@@ -428,24 +428,14 @@ canvas.addEventListener('touchcancel', endSteer);
 function applyTouchSteering(){
   if(steerTouchId === null || !steerTouchPos || !steerOrigin) return;
   if(state!=='PLAYING' && state!=='CABLE_LAYING') return;
+  // Always throttle while touching
+  keys['ArrowUp'] = true;
+  keys['ArrowDown'] = false;
+  // Steer based on drag offset from start point
   const dx = steerTouchPos.x - steerOrigin.x;
-  const dy = steerTouchPos.y - steerOrigin.y;
-  const d = Math.sqrt(dx*dx + dy*dy);
-  const deadzone = 12;
-  if(d < deadzone){
-    // Finger held still = throttle forward only
-    keys['ArrowUp'] = true;
-    keys['ArrowDown'] = false;
-    keys['ArrowLeft'] = false;
-    keys['ArrowRight'] = false;
-    return;
-  }
-  // Normalize
-  const nx = dx / d, ny = dy / d;
-  keys['ArrowUp']    = ny < -0.3;
-  keys['ArrowDown']  = ny > 0.5;
-  keys['ArrowLeft']  = nx < -0.3;
-  keys['ArrowRight'] = nx > 0.3;
+  const deadzone = 20;
+  keys['ArrowLeft']  = dx < -deadzone;
+  keys['ArrowRight'] = dx > deadzone;
 }
 
 /* ─── Action button ─── */
@@ -2104,7 +2094,7 @@ function drawTitle(){
 
   // Controls
   ctx.fillStyle='#888'; ctx.font='8px "Press Start 2P"';
-  ctx.fillText(isTouchDevice?'DRAG = STEER  BUTTON = ACTION':'UP = THROTTLE  L/R = STEER  SPACE = ACTION', W/2, 380);
+  ctx.fillText(isTouchDevice?'TOUCH = VAREN  SLEEP = STUREN':'UP = THROTTLE  L/R = STEER  SPACE = ACTION', W/2, 380);
   drawSoundIndicator();
 
   // Monopile info
