@@ -316,83 +316,136 @@ window.addEventListener('keyup',e=>{ keys[e.code]=false; });
 // ═════════════════════  TOUCH INPUT  ═════════════════════
 const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 
-/* Prevent scroll/zoom on canvas */
+/* Prevent scroll/zoom on canvas and body */
 canvas.addEventListener('touchstart', e => e.preventDefault(), {passive:false});
 canvas.addEventListener('touchmove',  e => e.preventDefault(), {passive:false});
 document.addEventListener('gesturestart', e => e.preventDefault());
 
-/* ─── Virtual joystick ─── */
-const joystickBase = document.getElementById('joystick-base');
-const joystickKnob = document.getElementById('joystick-knob');
-let joystickActive = false;
-let joystickTouchId = null;
-let joystickCenter = {x:0, y:0};
-const JOYSTICK_RADIUS = 40;
+/* ─── Touch steering: drag finger on screen to steer ─── */
+let steerTouchId = null;       // active steering touch
+let steerTouchPos = null;      // current {x,y} of steering finger
+let steerOrigin = null;        // where the steering touch started
 
-function getJoystickCenter(){
-  const rect = joystickBase.getBoundingClientRect();
-  return { x: rect.left + rect.width/2, y: rect.top + rect.height/2 };
+function canvasTouchToGame(t){
+  const rect = canvas.getBoundingClientRect();
+  return { x: (t.clientX - rect.left) / rect.width * W,
+           y: (t.clientY - rect.top)  / rect.height * H };
 }
 
-function updateJoystick(tx, ty){
-  const c = joystickCenter;
-  let dx = tx - c.x, dy = ty - c.y;
-  const dist2 = Math.sqrt(dx*dx + dy*dy);
-  if(dist2 > JOYSTICK_RADIUS){ dx = dx/dist2*JOYSTICK_RADIUS; dy = dy/dist2*JOYSTICK_RADIUS; }
-  joystickKnob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
-  // Map to keys
-  const nx = dx/JOYSTICK_RADIUS, ny = dy/JOYSTICK_RADIUS;
-  const deadzone = 0.2;
-  keys['ArrowLeft']  = nx < -deadzone;
-  keys['ArrowRight'] = nx > deadzone;
-  keys['ArrowUp']    = ny < -deadzone;
-  keys['ArrowDown']  = ny > deadzone;
-  // For cable loading minigame: detect alternating up/down flicks
+canvas.addEventListener('touchstart', e => {
+  ensureAudio();
+  const t = e.changedTouches[0];
+  const gp = canvasTouchToGame(t);
+
+  // Menu screens: handle taps
+  if(state==='TITLE'){ state='PHASE_SELECT'; selectedPhase=0; return; }
+  if(state==='PHASE_SELECT'){
+    if(gp.x < W*0.33){ selectedPhase=(selectedPhase+2)%3; beep(400,.05); }
+    else if(gp.x > W*0.67){ selectedPhase=(selectedPhase+1)%3; beep(400,.05); }
+    else {
+      if(selectedPhase===0){ gameMode='monopile'; state='SELECT'; selectedVessel=0; }
+      else if(selectedPhase===1){ gameMode='cable'; state='CABLE_SELECT'; selectedCableVessel=0; }
+      else { gameMode='both'; state='SELECT'; selectedVessel=0; }
+      beep(600,.1);
+    }
+    return;
+  }
+  if(state==='SELECT'){
+    if(gp.x < W*0.33){ selectedVessel=(selectedVessel+2)%3; beep(400,.05); }
+    else if(gp.x > W*0.67){ selectedVessel=(selectedVessel+1)%3; beep(400,.05); }
+    else {
+      activeVessel=VESSELS[selectedVessel];
+      state='PLAYING'; initGame();
+      beep(600,.1); setTimeout(()=>beep(800,.1),100);
+    }
+    return;
+  }
+  if(state==='CABLE_SELECT'){
+    if(gp.x < W*0.5){ selectedCableVessel=(selectedCableVessel+1)%2; beep(400,.05); }
+    else {
+      activeCableVessel=CABLE_VESSELS[selectedCableVessel];
+      state='CABLE_LAYING'; initCablePhase();
+      beep(600,.1); setTimeout(()=>beep(800,.1),100);
+    }
+    return;
+  }
+  if(state==='WIN'){ state='TITLE'; return; }
+
+  // Cable loading minigame: flick up/down
   if(state==='CABLE_LOADING'){
-    if(ny < -0.5 && cableLoadLastKey!=='up'){
-      cableLoadSpinSpeed=Math.min(cableLoadSpinSpeed+0.12,1.0); cableLoadLastKey='up'; beep(300+cableLoadProgress*400,.03);
-    } else if(ny > 0.5 && cableLoadLastKey!=='down'){
-      cableLoadSpinSpeed=Math.min(cableLoadSpinSpeed+0.12,1.0); cableLoadLastKey='down'; beep(300+cableLoadProgress*400,.03);
+    steerOrigin = {x: t.clientX, y: t.clientY};
+    steerTouchId = t.identifier;
+    return;
+  }
+
+  // Gameplay states: start steering touch
+  if(state==='PLAYING' || state==='CABLE_LAYING'){
+    if(steerTouchId === null){
+      steerTouchId = t.identifier;
+      steerOrigin = {x: t.clientX, y: t.clientY};
+      steerTouchPos = {x: t.clientX, y: t.clientY};
     }
   }
-}
+}, {passive:false});
 
-function resetJoystick(){
-  joystickKnob.style.transform = 'translate(-50%, -50%)';
-  keys['ArrowLeft'] = false; keys['ArrowRight'] = false;
-  keys['ArrowUp'] = false; keys['ArrowDown'] = false;
-}
+canvas.addEventListener('touchmove', e => {
+  for(const t of e.changedTouches){
+    if(t.identifier === steerTouchId){
+      steerTouchPos = {x: t.clientX, y: t.clientY};
 
-if(joystickBase){
-  joystickBase.addEventListener('touchstart', e => {
-    e.preventDefault();
-    const t = e.changedTouches[0];
-    joystickTouchId = t.identifier;
-    joystickActive = true;
-    joystickCenter = getJoystickCenter();
-    updateJoystick(t.clientX, t.clientY);
-  }, {passive:false});
-
-  joystickBase.addEventListener('touchmove', e => {
-    e.preventDefault();
-    for(const t of e.changedTouches){
-      if(t.identifier === joystickTouchId){
-        updateJoystick(t.clientX, t.clientY);
+      // Cable loading: detect up/down flicks
+      if(state==='CABLE_LOADING' && steerOrigin){
+        const dy = t.clientY - steerOrigin.y;
+        if(dy < -30 && cableLoadLastKey!=='up'){
+          cableLoadSpinSpeed=Math.min(cableLoadSpinSpeed+0.12,1.0); cableLoadLastKey='up';
+          beep(300+cableLoadProgress*400,.03);
+          steerOrigin.y = t.clientY;
+        } else if(dy > 30 && cableLoadLastKey!=='down'){
+          cableLoadSpinSpeed=Math.min(cableLoadSpinSpeed+0.12,1.0); cableLoadLastKey='down';
+          beep(300+cableLoadProgress*400,.03);
+          steerOrigin.y = t.clientY;
+        }
       }
     }
-  }, {passive:false});
+  }
+}, {passive:false});
 
-  const endJoystick = e => {
-    for(const t of e.changedTouches){
-      if(t.identifier === joystickTouchId){
-        joystickActive = false;
-        joystickTouchId = null;
-        resetJoystick();
-      }
+const endSteer = e => {
+  for(const t of e.changedTouches){
+    if(t.identifier === steerTouchId){
+      steerTouchId = null;
+      steerTouchPos = null;
+      steerOrigin = null;
+      keys['ArrowLeft'] = false; keys['ArrowRight'] = false;
+      keys['ArrowUp'] = false; keys['ArrowDown'] = false;
     }
-  };
-  joystickBase.addEventListener('touchend', endJoystick);
-  joystickBase.addEventListener('touchcancel', endJoystick);
+  }
+};
+canvas.addEventListener('touchend', endSteer);
+canvas.addEventListener('touchcancel', endSteer);
+
+/* Apply touch steering in update — called from update() */
+function applyTouchSteering(){
+  if(steerTouchId === null || !steerTouchPos || !steerOrigin) return;
+  if(state!=='PLAYING' && state!=='CABLE_LAYING') return;
+  const dx = steerTouchPos.x - steerOrigin.x;
+  const dy = steerTouchPos.y - steerOrigin.y;
+  const d = Math.sqrt(dx*dx + dy*dy);
+  const deadzone = 12;
+  if(d < deadzone){
+    // Finger held still = throttle forward only
+    keys['ArrowUp'] = true;
+    keys['ArrowDown'] = false;
+    keys['ArrowLeft'] = false;
+    keys['ArrowRight'] = false;
+    return;
+  }
+  // Normalize
+  const nx = dx / d, ny = dy / d;
+  keys['ArrowUp']    = ny < -0.3;
+  keys['ArrowDown']  = ny > 0.5;
+  keys['ArrowLeft']  = nx < -0.3;
+  keys['ArrowRight'] = nx > 0.3;
 }
 
 /* ─── Action button ─── */
@@ -434,53 +487,6 @@ if(btnMute){
     soundEnabled = !soundEnabled;
   }, {passive:false});
 }
-
-/* ─── Canvas tap for menus (title/select screens) ─── */
-canvas.addEventListener('touchstart', e => {
-  ensureAudio();
-  const rect = canvas.getBoundingClientRect();
-  const scaleX = W / rect.width, scaleY = H / rect.height;
-  const t = e.changedTouches[0];
-  const cx = (t.clientX - rect.left) * scaleX;
-  const cy = (t.clientY - rect.top) * scaleY;
-
-  if(state==='TITLE'){
-    state='PHASE_SELECT'; selectedPhase=0; return;
-  }
-  if(state==='PHASE_SELECT'){
-    // Tap left/right thirds to switch, center to confirm
-    if(cx < W*0.33){ selectedPhase=(selectedPhase+2)%3; beep(400,.05); }
-    else if(cx > W*0.67){ selectedPhase=(selectedPhase+1)%3; beep(400,.05); }
-    else {
-      if(selectedPhase===0){ gameMode='monopile'; state='SELECT'; selectedVessel=0; }
-      else if(selectedPhase===1){ gameMode='cable'; state='CABLE_SELECT'; selectedCableVessel=0; }
-      else { gameMode='both'; state='SELECT'; selectedVessel=0; }
-      beep(600,.1);
-    }
-    return;
-  }
-  if(state==='SELECT'){
-    if(cx < W*0.33){ selectedVessel=(selectedVessel+2)%3; beep(400,.05); }
-    else if(cx > W*0.67){ selectedVessel=(selectedVessel+1)%3; beep(400,.05); }
-    else {
-      activeVessel=VESSELS[selectedVessel];
-      state='PLAYING'; initGame();
-      beep(600,.1); setTimeout(()=>beep(800,.1),100);
-    }
-    return;
-  }
-  if(state==='CABLE_SELECT'){
-    if(cx < W*0.5){
-      selectedCableVessel = (selectedCableVessel+1)%2; beep(400,.05);
-    } else {
-      activeCableVessel=CABLE_VESSELS[selectedCableVessel];
-      state='CABLE_LAYING'; initCablePhase();
-      beep(600,.1); setTimeout(()=>beep(800,.1),100);
-    }
-    return;
-  }
-  if(state==='WIN'){ state='TITLE'; return; }
-}, {passive:false});
 
 // ═════════════════════  ACTIONS  ═════════════════════
 function doAction(){
@@ -609,6 +615,7 @@ function update(dt){
   }
 
   // Movement – ship steering: Left/Right rotate, Up = throttle, Down = brake
+  applyTouchSteering();
   let turning=0, throttle=false, braking=false;
   if(keys['ArrowLeft']||keys['KeyA'])  turning--;
   if(keys['ArrowRight']||keys['KeyD']) turning++;
@@ -2097,7 +2104,7 @@ function drawTitle(){
 
   // Controls
   ctx.fillStyle='#888'; ctx.font='8px "Press Start 2P"';
-  ctx.fillText(isTouchDevice?'JOYSTICK = STEER  BUTTON = ACTION':'UP = THROTTLE  L/R = STEER  SPACE = ACTION', W/2, 380);
+  ctx.fillText(isTouchDevice?'DRAG = STEER  BUTTON = ACTION':'UP = THROTTLE  L/R = STEER  SPACE = ACTION', W/2, 380);
   drawSoundIndicator();
 
   // Monopile info
@@ -2913,7 +2920,7 @@ function drawCableLoading(){
   ctx.fillStyle='#5DADEC'; ctx.font='14px "Press Start 2P"';
   ctx.fillText('LOADING CABLE',W/2,45);
   ctx.fillStyle='#AAA'; ctx.font='7px "Press Start 2P"';
-  ctx.fillText(isTouchDevice?'FLICK JOYSTICK UP & DOWN TO SPIN!':'MASH UP & DOWN TO SPIN CAROUSELS!',W/2,70);
+  ctx.fillText(isTouchDevice?'SWIPE UP & DOWN TO SPIN!':'MASH UP & DOWN TO SPIN CAROUSELS!',W/2,70);
 
   // Two carousels side by side
   const lx=W/2-130, rx=W/2+130, cy=220;
@@ -2985,7 +2992,7 @@ function drawCableLoading(){
     ctx.fillText('\u25BC',W/2,420);
   }
   ctx.fillStyle='#888'; ctx.font='7px "Press Start 2P"';
-  ctx.fillText(isTouchDevice?'FLICK UP & DOWN':'ALTERNATE UP & DOWN',W/2,450);
+  ctx.fillText(isTouchDevice?'SWIPE UP & DOWN':'ALTERNATE UP & DOWN',W/2,450);
 
   drawSoundIndicator();
 }
@@ -3055,6 +3062,7 @@ function updateCableLaying(dt){
   if(msgTimer>0) msgTimer--;
 
   // Movement – ship steering: Left/Right rotate, Up = throttle, Down = brake
+  applyTouchSteering();
   let turning2=0, throttle2=false, braking2=false;
   if(keys['ArrowLeft']||keys['KeyA'])  turning2--;
   if(keys['ArrowRight']||keys['KeyD']) turning2++;
@@ -4021,10 +4029,7 @@ function loop(){
 // ═════════════════════  RESIZE  ═════════════════════
 function resize(){
   const maxW=window.innerWidth, maxH=window.innerHeight;
-  const touchArea = document.getElementById('touch-controls');
-  const touchH = (touchArea && getComputedStyle(touchArea).display !== 'none') ? 140 : 0;
-  const availH = maxH - touchH;
-  const scale=Math.min(maxW/W, availH/H);
+  const scale=Math.min(maxW/W, maxH/H);
   canvas.style.width  = (W*scale)+'px';
   canvas.style.height = (H*scale)+'px';
 }
