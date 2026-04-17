@@ -354,20 +354,37 @@ canvas.addEventListener('touchstart', e => {
   // Menu screens: handle taps
   if(state==='TITLE'){ state='PHASE_SELECT'; selectedPhase=0; return; }
   if(state==='PHASE_SELECT'){
-    if(gp.x < W*0.33){ selectedPhase=(selectedPhase+2)%3; beep(400,.05); }
-    else if(gp.x > W*0.67){ selectedPhase=(selectedPhase+1)%3; beep(400,.05); }
-    else {
-      if(selectedPhase===0){ gameMode='monopile'; state='SELECT'; selectedVessel=0; }
-      else if(selectedPhase===1){ gameMode='cable'; state='CABLE_SELECT'; selectedCableVessel=0; }
-      else { gameMode='both'; state='SELECT'; selectedVessel=0; }
-      beep(600,.1);
+    // Tap directly on a card: cardW=180, gap=25, 3 cards centered
+    const cardW=180, gap=25, totalW2=cardW*3+gap*2;
+    const startX2=W/2-totalW2/2;
+    let tapped=-1;
+    for(let i=0;i<3;i++){
+      const cx2=startX2+i*(cardW+gap);
+      if(gp.x>=cx2 && gp.x<=cx2+cardW && gp.y>=100 && gp.y<=360) tapped=i;
+    }
+    if(tapped>=0 && tapped!==selectedPhase){ selectedPhase=tapped; beep(400,.05); }
+    else if(tapped===selectedPhase || tapped<0){
+      // Confirm current selection (tap same card again, or tap outside cards)
+      if(tapped>=0){
+        if(selectedPhase===0){ gameMode='monopile'; state='SELECT'; selectedVessel=0; }
+        else if(selectedPhase===1){ gameMode='cable'; state='CABLE_SELECT'; selectedCableVessel=0; }
+        else { gameMode='both'; state='SELECT'; selectedVessel=0; }
+        beep(600,.1);
+      }
     }
     return;
   }
   if(state==='SELECT'){
-    if(gp.x < W*0.33){ selectedVessel=(selectedVessel+2)%3; beep(400,.05); }
-    else if(gp.x > W*0.67){ selectedVessel=(selectedVessel+1)%3; beep(400,.05); }
-    else {
+    // Tap on vessel card: cardW=240, gap=4, 3 cards centered
+    const vCardW=240, vGap=4, vTotalW=3*vCardW+2*vGap;
+    const vStartX=W/2-vTotalW/2;
+    let tapped=-1;
+    for(let i=0;i<3;i++){
+      const cx2=vStartX+i*(vCardW+vGap);
+      if(gp.x>=cx2 && gp.x<=cx2+vCardW && gp.y>=50 && gp.y<=390) tapped=i;
+    }
+    if(tapped>=0 && tapped!==selectedVessel){ selectedVessel=tapped; beep(400,.05); }
+    else if(tapped===selectedVessel){
       activeVessel=VESSELS[selectedVessel];
       state='PLAYING'; initGame();
       beep(600,.1); setTimeout(()=>beep(800,.1),100);
@@ -375,8 +392,16 @@ canvas.addEventListener('touchstart', e => {
     return;
   }
   if(state==='CABLE_SELECT'){
-    if(gp.x < W*0.5){ selectedCableVessel=(selectedCableVessel+1)%2; beep(400,.05); }
-    else {
+    // Tap on cable vessel card: cardW=300, gap=20, 2 cards centered
+    const cCardW=300, cGap=20, cTotalW=2*cCardW+cGap;
+    const cStartX=W/2-cTotalW/2;
+    let tapped=-1;
+    for(let i=0;i<2;i++){
+      const cx2=cStartX+i*(cCardW+cGap);
+      if(gp.x>=cx2 && gp.x<=cx2+cCardW && gp.y>=105 && gp.y<=365) tapped=i;
+    }
+    if(tapped>=0 && tapped!==selectedCableVessel){ selectedCableVessel=tapped; beep(400,.05); }
+    else if(tapped===selectedCableVessel){
       activeCableVessel=CABLE_VESSELS[selectedCableVessel];
       state='CABLE_LAYING'; initCablePhase();
       beep(600,.1); setTimeout(()=>beep(800,.1),100);
@@ -2051,7 +2076,7 @@ function drawSelectScreen(){
   }
   ctx.fillStyle='#888'; ctx.font='7px "Press Start 2P"';
   ctx.textAlign='center';
-  ctx.fillText(isTouchDevice?'\u25C4  SWIPE  \u25BA':'\u25C4  ARROWS  \u25BA', W/2, ctrlY + 22);
+  ctx.fillText(isTouchDevice?'TAP AGAIN TO CONFIRM':'\u25C4  ARROWS  \u25BA', W/2, ctrlY + 22);
   if(!isTouchDevice){ ctx.fillStyle='#555'; ctx.font='6px "Press Start 2P"'; ctx.fillText('ESC = BACK', W/2, ctrlY + 40); }
 }
 
@@ -2229,7 +2254,7 @@ function drawPhaseSelect(){
   // Prompt
   if((time/500|0)%2){
     ctx.fillStyle='#FFF'; ctx.font='9px "Press Start 2P"';
-    ctx.fillText(isTouchDevice?'TAP LEFT/RIGHT = SELECT  CENTER = START':'ARROWS = SELECT    ENTER = START', W/2, 400);
+    ctx.fillText(isTouchDevice?'TAP TO SELECT  TAP AGAIN TO START':'ARROWS = SELECT    ENTER = START', W/2, 400);
   }
   if(!isTouchDevice){ ctx.fillStyle='#666'; ctx.font='7px "Press Start 2P"'; ctx.fillText('ESC = BACK', W/2, 430); }
   drawSoundIndicator();
@@ -3970,7 +3995,7 @@ function drawCableSelectScreen(){
     ctx.fillText(isTouchDevice?'TAP TO SELECT':'SPACE = SELECT',W/2,445);
   }
   ctx.fillStyle='#888'; ctx.font='7px "Press Start 2P"';
-  ctx.fillText(isTouchDevice?'TAP LEFT/RIGHT':'\u25C4  ARROWS  \u25BA',W/2,467);
+  ctx.fillText(isTouchDevice?'TAP AGAIN TO START':'\u25C4  ARROWS  \u25BA',W/2,467);
 }
 
 // ═════════════════════  RENDER  ═════════════════════
