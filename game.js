@@ -475,6 +475,7 @@ const btnAction = document.getElementById('btn-action');
 if(btnAction){
   btnAction.addEventListener('touchstart', e => {
     e.preventDefault();
+    e.stopPropagation();
     ensureAudio();
     if(state==='TITLE'){ state='PHASE_SELECT'; selectedPhase=0; return; }
     if(state==='PHASE_SELECT'){
@@ -506,7 +507,27 @@ const btnMute = document.getElementById('btn-mute');
 if(btnMute){
   btnMute.addEventListener('touchstart', e => {
     e.preventDefault();
+    e.stopPropagation();
     soundEnabled = !soundEnabled;
+    btnMute.textContent = soundEnabled ? 'M' : '🔇';
+  }, {passive:false});
+}
+
+/* ─── Back / Menu button ─── */
+const btnBack = document.getElementById('btn-back');
+if(btnBack){
+  btnBack.addEventListener('touchstart', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    if(state==='PLAYING' || state==='CABLE_LAYING' || state==='CABLE_LOADING'){
+      state='PHASE_SELECT'; selectedPhase=0;
+      steerTouchId=null; steerTouchPos=null; touchSteering=false;
+      keys['ArrowLeft']=false; keys['ArrowRight']=false; keys['ArrowUp']=false; keys['ArrowDown']=false;
+      beep(300,.1);
+    } else if(state==='SELECT'){ state='PHASE_SELECT'; beep(300,.1); }
+    else if(state==='CABLE_SELECT'){ state='PHASE_SELECT'; beep(300,.1); }
+    else if(state==='PHASE_SELECT'){ state='TITLE'; beep(300,.1); }
+    else if(state==='WIN'){ state='TITLE'; beep(300,.1); }
   }, {passive:false});
 }
 
