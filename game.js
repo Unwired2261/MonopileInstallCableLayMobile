@@ -316,15 +316,19 @@ window.addEventListener('keyup',e=>{ keys[e.code]=false; });
 // ═════════════════════  TOUCH INPUT  ═════════════════════
 const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 
-/* Prevent scroll/zoom on canvas and body */
-canvas.addEventListener('touchstart', e => e.preventDefault(), {passive:false});
-canvas.addEventListener('touchmove',  e => e.preventDefault(), {passive:false});
+/* Prevent ALL scroll/zoom/bounce on iOS */
+document.addEventListener('touchstart', e => { if(e.target===canvas) e.preventDefault(); }, {passive:false});
+document.addEventListener('touchmove',  e => e.preventDefault(), {passive:false});
+document.addEventListener('touchend',   e => { if(e.target===canvas) e.preventDefault(); }, {passive:false});
 document.addEventListener('gesturestart', e => e.preventDefault());
+document.addEventListener('gesturechange', e => e.preventDefault());
+document.addEventListener('gestureend', e => e.preventDefault());
 
-/* ─── Touch steering: drag finger on screen to steer ─── */
+/* ─── Touch steering: finger position on screen to steer ─── */
 let steerTouchId = null;       // active steering touch
-let steerTouchPos = null;      // current {x,y} of steering finger
-let steerOrigin = null;        // where the steering touch started
+let steerTouchPos = null;      // current {x,y} screen pos of steering finger
+let steerOrigin = null;        // for cable loading flick detection
+let touchSteering = false;     // true while actively steering via touch
 
 function canvasTouchToGame(t){
   const rect = canvas.getBoundingClientRect();
@@ -332,8 +336,18 @@ function canvasTouchToGame(t){
            y: (t.clientY - rect.top)  / rect.height * H };
 }
 
+/* Convert screen touch to game-world position */
+function screenTouchToWorld(t){
+  const rect = canvas.getBoundingClientRect();
+  const gx = (t.clientX - rect.left) / rect.width * W;
+  const gy = (t.clientY - rect.top)  / rect.height * H;
+  return { x: gx + cam.x, y: gy + cam.y };
+}
+
 canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
   ensureAudio();
+  if(audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
   const t = e.changedTouches[0];
   const gp = canvasTouchToGame(t);
 
@@ -382,13 +396,14 @@ canvas.addEventListener('touchstart', e => {
   if(state==='PLAYING' || state==='CABLE_LAYING'){
     if(steerTouchId === null){
       steerTouchId = t.identifier;
-      steerOrigin = {x: t.clientX, y: t.clientY};
       steerTouchPos = {x: t.clientX, y: t.clientY};
+      touchSteering = true;
     }
   }
 }, {passive:false});
 
 canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
   for(const t of e.changedTouches){
     if(t.identifier === steerTouchId){
       steerTouchPos = {x: t.clientX, y: t.clientY};
@@ -416,6 +431,7 @@ const endSteer = e => {
       steerTouchId = null;
       steerTouchPos = null;
       steerOrigin = null;
+      touchSteering = false;
       keys['ArrowLeft'] = false; keys['ArrowRight'] = false;
       keys['ArrowUp'] = false; keys['ArrowDown'] = false;
     }
@@ -424,18 +440,34 @@ const endSteer = e => {
 canvas.addEventListener('touchend', endSteer);
 canvas.addEventListener('touchcancel', endSteer);
 
-/* Apply touch steering in update — called from update() */
+/* Apply touch steering in update — boat turns toward finger position */
 function applyTouchSteering(){
-  if(steerTouchId === null || !steerTouchPos || !steerOrigin) return;
+  if(!touchSteering || steerTouchId === null || !steerTouchPos) return;
   if(state!=='PLAYING' && state!=='CABLE_LAYING') return;
+
+  // Convert finger screen pos to world coordinates
+  const rect = canvas.getBoundingClientRect();
+  const gx = (steerTouchPos.x - rect.left) / rect.width * W + cam.x;
+  const gy = (steerTouchPos.y - rect.top)  / rect.height * H + cam.y;
+
+  // Angle from vessel to finger in world space
+  const dx = gx - vessel.x;
+  const dy = gy - vessel.y;
+  const targetAng = Math.atan2(dy, dx);
+
+  // Calculate shortest angle difference
+  let diff = targetAng - vessel.ang;
+  while(diff > Math.PI)  diff -= Math.PI*2;
+  while(diff < -Math.PI) diff += Math.PI*2;
+
+  // Steer toward the finger
+  const deadzone = 0.15; // ~8 degrees
+  keys['ArrowLeft']  = diff < -deadzone;
+  keys['ArrowRight'] = diff > deadzone;
+
   // Always throttle while touching
   keys['ArrowUp'] = true;
   keys['ArrowDown'] = false;
-  // Steer based on drag offset from start point
-  const dx = steerTouchPos.x - steerOrigin.x;
-  const deadzone = 20;
-  keys['ArrowLeft']  = dx < -deadzone;
-  keys['ArrowRight'] = dx > deadzone;
 }
 
 /* ─── Action button ─── */
